@@ -1,7 +1,9 @@
+version: '3.8'
+
 services:
-  auth-service:
+  auth-services:
     build:
-      context: ./auth-service
+      context: ./services/auth-services
     ports:
       - "8080:8080"
     environment:
@@ -11,10 +13,17 @@ services:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     depends_on:
       - db
+      - kafka
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://auth-services:8080/auth/ping"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
-  task-service:
+  task-services:
     build:
-      context: ./task-service
+      context: ./services/task-services
     ports:
       - "8081:8081"
     environment:
@@ -24,10 +33,17 @@ services:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     depends_on:
       - db
+      - kafka
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://task-services:8081/tasks/ping"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
-  notification-service:
+  notification-services:
     build:
-      context: ./notification-service
+      context: ./services/notification-services
     ports:
       - "8082:8082"
     environment:
@@ -37,6 +53,13 @@ services:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     depends_on:
       - db
+      - kafka
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://notification-services:8082/notifications/ping"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
   db:
     image: postgres:13
@@ -49,6 +72,12 @@ services:
       - "5432:5432"
     volumes:
       - task_scheduler_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "task_scheduler"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
   kafka:
     image: wurstmeister/kafka
@@ -61,14 +90,43 @@ services:
       KAFKA_LISTENER_INTERNAL_PORT: 9093
       KAFKA_LISTENER_PORT: 9093
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_INTER_BROKER_LISTENER_NAME: INSIDE
     depends_on:
       - zookeeper
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9093"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
   zookeeper:
     image: wurstmeister/zookeeper
     ports:
       - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "-w", "1", "localhost", "2181"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
 
 volumes:
   task_scheduler_data:
+    driver: local
+  kafka-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-datalog:
     driver: local
